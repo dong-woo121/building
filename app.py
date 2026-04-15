@@ -14,7 +14,7 @@ VWORLD_KEY = os.getenv("VWORLD_API_KEY", "")
 # 국토교통부 건축물대장 API URL
 BR_EXCT_HABIT_PD_URL = "http://apis.data.go.kr/1613000/BldRgstService_v2/getBrExctHabitPdInfo"
 
-def get_unit_data(s_code, b_code, bun, ji, dong_nm, api_key):
+def get_unit_data(s_code, b_code, bun, ji, api_key):
     """건축물대장 API 호출"""
     params = {
         'serviceKey': api_key,
@@ -27,112 +27,116 @@ def get_unit_data(s_code, b_code, bun, ji, dong_nm, api_key):
     }
     try:
         response = requests.get(BR_EXCT_HABIT_PD_URL, params=params, timeout=15)
-        if response.status_code == 200:
-            return response.text
-        return None
-    except:
-        return None
+        return response.text, response.status_code
+    except Exception as e:
+        return str(e), 500
 
 def parse_units(xml_data, target_dong):
-    if not xml_data: return []
+    if not xml_data: return [], "데이터가 비어있습니다."
     try:
         root = ET.fromstring(xml_data)
-        return [{
-            '동': i.findtext('dongNm', ''),
-            '호': i.findtext('hoNm', ''),
-            '층': i.findtext('flrNm', ''),
-            '면적': float(i.findtext('exposPubuseArea', '0'))
-        } for i in root.findall(".//item") if target_dong in i.findtext('dongNm', '')]
-    except: return []
+        
+        # 공공데이터 API 자체 에러 체크 (200 OK 내부에 에러 메시지가 있는 경우)
+        header_code = root.findtext(".//resultCode")
+        header_msg = root.findtext(".//resultMsg")
+        if header_code and header_code != "00":
+            return [], f"API 에러: {header_msg} ({header_code})"
+            
+        items = []
+        for i in root.findall(".//item"):
+            d = i.findtext('dongNm', '')
+            # 동 명칭 매칭 (입력값이 데이터에 포함되거나 그 반대인 경우)
+            # 예: '101' vs '0101동' 매칭 성공
+            clean_target = "".join(filter(str.isdigit, target_dong))
+            clean_dong = "".join(filter(str.isdigit, d))
+            
+            if not target_dong or (clean_target and clean_target in clean_dong) or target_dong in d:
+                items.append({
+                    '동': d,
+                    '호': i.findtext('hoNm', ''),
+                    '층': i.findtext('flrNm', ''),
+                    '면적': float(i.findtext('exposPubuseArea', '0'))
+                })
+        return items, "성공"
+    except Exception as e:
+        return [], f"XML 파싱 에러: {e}"
 
 # --- UI 세팅 ---
-st.set_page_config(page_title="Unit Matcher - KING GEMINI", page_icon="🏢", layout="centered")
+st.set_page_config(page_title="매물 호수 식별 시스템", page_icon="🏢", layout="centered")
 
-# 사이드바 설정 (API 키 입력)
+# 사이드바 설정
 with st.sidebar:
     st.header("🔑 API 설정")
-    st.caption("서비스 이용을 위해 아래 키를 입력해주세요.")
-    
-    # 1. 공공데이터포털 인증키
-    input_api_key = st.text_input("공공데이터 인증키 (Decoding)", value=API_KEY, type="password", help="data.go.kr에서 발급받은 건축물대장 API 키")
+    input_api_key = st.text_input("공공데이터 인증키 (Decoding)", value=API_KEY, type="password")
     if input_api_key: API_KEY = input_api_key
     
-    # 2. Vworld 인증키 (주소 검색용)
-    input_vworld_key = st.text_input("Vworld 인증키", value=VWORLD_KEY, type="password", help="vworld.kr에서 발급받은 API 키 (주소 검색용)")
+    input_vworld_key = st.text_input("Vworld 인증키", value=VWORLD_KEY, type="password")
     if input_vworld_key: VWORLD_KEY = input_vworld_key
     
     st.divider()
-    st.markdown("### 📖 사용 가이드")
-    st.markdown("""
-    1. **주소**에 아파트명이나 지번을 입력하세요.
-    2. **동/층/면적** 정보를 입력합니다.
-    3. **정답 확인** 버튼을 누르면 끝!
-    """)
+    st.info("💡 API 응답이 200인데 데이터가 안 나오면 인증키(Decoding)가 정확한지 다시 확인하세요.")
 
-st.title("🏢 매물 호수 자동 식별 시스템")
-st.subheader("KING GEMINI Edition v1.0")
+st.title("🏢 매물 호수 자동 식별기")
 st.markdown("---")
 
 # 메인 입력 섹션
 with st.container():
-    addr_input = st.text_input("📍 주소 검색", placeholder="예: 강남구 삼성동 101-1 또는 삼성동 아이파크")
+    addr_input = st.text_input("📍 주소 검색 (단지만 나오도록 입력)", placeholder="예: 삼성동 아이파크 (동/호수 제외)")
     
-    col1, col2, col3 = st.columns([1, 1, 1])
+    col1, col2, col3 = st.columns(3)
     with col1:
-        dong = st.text_input("🏘️ 동 (예: 101)", placeholder="101")
+        dong = st.text_input("🏘️ 동 (숫자만)", placeholder="101")
     with col2:
-        floor = st.text_input("🪜 층 (예: 5)", placeholder="5")
+        floor = st.text_input("🪜 층", placeholder="5")
     with col3:
         area = st.number_input("📐 전용면적 (㎡)", value=84.93, step=0.01, format="%.2f")
 
 # 실행 버튼
-if st.button("✨ 정확한 호수 찾아내기", use_container_width=True, type="primary"):
-    if not API_KEY or API_KEY == "YOUR_API_KEY_HERE":
-        st.warning("⚠️ 왼쪽 사이드바에 '공공데이터 인증키'를 입력해주세요.")
-    elif not VWORLD_KEY:
-        st.warning("⚠️ 왼쪽 사이드바에 'Vworld 인증키'를 입력해주세요. (주소 검색용)")
+if st.button("🔍 정확한 호수 확인하기", use_container_width=True, type="primary"):
+    if not API_KEY or not VWORLD_KEY:
+        st.warning("⚠️ API 키를 설정해주세요.")
     elif not addr_input or not dong:
         st.error("❌ 주소와 동 정보를 입력해주세요.")
     else:
-        with st.status("💎 KING GEMINI 분석 엔진 가동 중...", expanded=True) as status:
+        with st.status("분석 중...", expanded=True) as status:
             # 1. 주소 -> 코드 변환
-            st.write("🔍 주소 코드를 분석하고 있습니다...")
             s_code, b_code, bun, ji = search_address_to_codes(addr_input, VWORLD_KEY)
             
             if s_code:
-                st.write(f"✅ 주소 인식 완료 (코드: {s_code}{b_code})")
-                st.write("🏢 건축물대장 데이터를 대조 중입니다...")
+                st.write(f"✅ 주소 인식: {s_code}{b_code} (번지:{bun}-{ji})")
                 
                 # 2. 건축물대장 API 호출
-                xml_res = get_unit_data(s_code, b_code, bun, ji, dong, API_KEY)
-                units = parse_units(xml_res, dong)
+                xml_raw, status_code = get_unit_data(s_code, b_code, bun, ji, API_KEY)
                 
-                if units:
-                    df = pd.DataFrame(units)
-                    # 필터링 
-                    df_filtered = df[df['층'].str.contains(floor) if floor else True]
-                    df_final = df_filtered[abs(df_filtered['면적'] - area) < 0.1]
+                if status_code == 200:
+                    units, msg = parse_units(xml_raw, dong)
                     
-                    if not df_final.empty:
-                        status.update(label="🎯 매칭 성공!", state="complete", expanded=False)
-                        st.balloons()
-                        st.success(f"### 🎉 총 {len(df_final)}개의 후보 호수를 찾았습니다!")
+                    if units:
+                        df = pd.DataFrame(units)
+                        # 필터링 
+                        df_filtered = df[df['층'].str.contains(floor) if floor else True]
+                        df_final = df_filtered[abs(df_filtered['면적'] - area) < 0.1]
                         
-                        for _, row in df_final.iterrows():
-                            with st.chat_message("assistant", avatar="🏠"):
-                                st.write(f"추정 호수: **{row['동']} {row['hoNm'] if 'hoNm' in row else row['호']}**")
-                                st.caption(f"층: {row['층']} / 정확한 면적: {row['면적']}㎡")
+                        if not df_final.empty:
+                            status.update(label="🎯 매칭 성공!", state="complete", expanded=False)
+                            st.balloons()
+                            st.success(f"### 🎉 총 {len(df_final)}개의 후보 발견")
+                            for _, row in df_final.iterrows():
+                                st.info(f"**{row['동']} {row['호']}** (층: {row['층']} / 면적: {row['면적']}㎡)")
+                        else:
+                            status.update(label="❌ 면적/층 불일치", state="error")
+                            st.error(f"입력하신 조건(층:{floor}, 면적:{area}㎡)과 맞는 호수가 없습니다.")
+                            with st.expander("데이터베이스에 있는 해당 동 전체 호수 목록"):
+                                st.dataframe(df)
                     else:
-                        status.update(label="❌ 면적 불일치", state="error")
-                        st.error(f"입력하신 면적({area}㎡)과 일치하는 호수가 해당 층에 없습니다.")
-                        with st.expander("해당 동의 전체 호수 데이터 보기"):
-                            st.dataframe(df)
+                        status.update(label="❌ 데이터 없음", state="error")
+                        st.error(f"결과가 없습니다: {msg}")
+                        with st.expander("국토부 서버 응답 원문 (Debug)"):
+                            st.code(xml_raw)
                 else:
-                    status.update(label="❌ 데이터 없음", state="error")
-                    st.error("해당 주소/동의 데이터를 찾을 수 없습니다. (번지수나 동 명칭을 확인하세요)")
+                    status.update(label="❌ 통신 실패", state="error")
+                    st.error(f"서버 응답 오류 (코드: {status_code})")
+                    st.code(xml_raw)
             else:
                 status.update(label="❌ 주소 인식 실패", state="error")
-                st.error("정확한 주소를 입력해주세요. (Vworld API 키 확인 필요)")
-
-st.divider()
-st.caption("Powered by Public Data Portal & Vworld API")
+                st.error("Vworld에서 주소를 찾지 못했습니다. 주소를 더 간단하게 입력해 보세요.")
