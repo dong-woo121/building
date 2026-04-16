@@ -147,8 +147,8 @@ if st.button("🔍 정확한 호수 확인하기", use_container_width=True, typ
                         dong_digits = "".join(filter(str.isdigit, dong)) if dong else ""
                         if dong_digits:
                             df = df[df['동'].apply(lambda d: dong_digits in "".join(filter(str.isdigit, d)))]
-                        # 층 필터
-                        df_floor = df[df['층'].str.contains(floor, na=False)] if floor else df
+                        # 층 필터 (정확히 일치: "5" → "5층"만, "15층"/"25층" 제외)
+                        df_floor = df[df['층'] == f"{floor}층"] if floor else df
                         # 면적 필터 (면적 데이터가 있을 때만)
                         has_area = df_floor['면적'].max() > 0
                         df_final = df_floor[abs(df_floor['면적'] - area) < 0.1] if has_area else df_floor
@@ -165,7 +165,7 @@ if st.button("🔍 정확한 호수 확인하기", use_container_width=True, typ
                             status.update(label="❌ 일치하는 호수 없음", state="error")
                             st.error("조건에 맞는 호수가 없습니다. 면적이나 층을 확인하세요.")
                             with st.expander("동 전체 호수 보기"):
-                                st.dataframe(df)
+                                st.dataframe(df.reset_index(drop=True))
                     else:
                         status.update(label="❌ 데이터 없음", state="error")
                         st.error(f"결과 없음: {msg}")
