@@ -38,7 +38,7 @@ def _fetch_all_items(url, base_params):
     except Exception:
         return []
 
-def get_unit_data(s_code, b_code, bun, ji, api_key, bld_name=None):
+def get_unit_data(s_code, b_code, bun, ji, api_key, bld_name=None, debug_container=None):
     decoded_key = urllib.parse.unquote(api_key)
     base = {
         'serviceKey': decoded_key,
@@ -57,11 +57,20 @@ def get_unit_data(s_code, b_code, bun, ji, api_key, bld_name=None):
         return any(t in _norm(item.findtext('bldNm', '')) for t in bld_tokens)
 
     # 1) 전유부 목록 (동, 호, 층번호)
-    unit_items = [i for i in _fetch_all_items(BR_EXPOS_INFO_URL, base) if bld_ok(i)]
+    raw_units = _fetch_all_items(BR_EXPOS_INFO_URL, base)
+    unit_items = [i for i in raw_units if bld_ok(i)]
 
     # 2) 면적 데이터 (전유 only)
-    area_items = [i for i in _fetch_all_items(BR_AREA_URL, base)
+    raw_area = _fetch_all_items(BR_AREA_URL, base)
+    area_items = [i for i in raw_area
                   if i.findtext('exposPubuseGbCd', '') == '1' and bld_ok(i)]
+
+    if debug_container:
+        debug_container.info(
+            f"📊 **API 로그** | "
+            f"getBrExposInfo: {len(raw_units)}건 (건물명 필터 후: {len(unit_items)}건) | "
+            f"getBrExposPubuseAreaInfo(전유): {len(raw_area)}건 → 면적매칭: {len(area_items)}건"
+        )
     area_map = {}
     for i in area_items:
         key = (i.findtext('dongNm', ''), i.findtext('hoNm', ''))
@@ -138,7 +147,8 @@ if st.button("🔍 정확한 호수 확인하기", use_container_width=True, typ
                     st.write("2. 국토부 서버에서 건축물대장을 가져오고 있습니다...")
                     units, msg = get_unit_data(
                         s_code, b_code, bun, ji, API_KEY,
-                        bld_name=addr_input if not manual_mode else None
+                        bld_name=addr_input if not manual_mode else None,
+                        debug_container=st
                     )
 
                     if units:
