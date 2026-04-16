@@ -136,6 +136,8 @@ if st.button("🔍 정확한 호수 확인하기", use_container_width=True, typ
                                 st.error("조건에 맞는 호수가 없습니다. 면적이나 층을 확인하세요.")
                                 with st.expander("동 전체 호수 보기"):
                                     st.dataframe(df)
+                                with st.expander("원본 XML (필드명 확인용)"):
+                                    st.code(xml_raw[:3000])
                         else:
                             status.update(label="❌ 데이터 없음", state="error")
                             st.error(f"결과 없음: {msg}")
