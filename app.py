@@ -12,7 +12,7 @@ load_dotenv()
 API_KEY = os.getenv("DATA_GO_KR_API_KEY", "")
 KAKAO_KEY = os.getenv("KAKAO_API_KEY", "")
 
-BR_EXCT_HABIT_PD_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExctHabitPdInfo"
+BR_EXCT_HABIT_PD_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo"
 
 def get_unit_data(s_code, b_code, bun, ji, api_key):
     # 공공데이터포털 API의 고질적인 키 이슈 해결: 
