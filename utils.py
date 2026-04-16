@@ -1,70 +1,49 @@
 import requests
-import re
 
-def search_address_to_codes(query, vworld_key):
-    if not vworld_key:
-        return None, None, None, None, "Vworld API 키가 입력되지 않았습니다."
+KAKAO_SEARCH_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
+KAKAO_COORD2REGION_URL = "https://dapi.kakao.com/v2/local/geo/coord2regioncode.json"
+KAKAO_COORD2ADDR_URL = "https://dapi.kakao.com/v2/local/geo/coord2address.json"
 
-    url = "https://api.vworld.kr/req/search"
+def search_address_to_codes(query, kakao_key):
+    if not kakao_key:
+        return None, None, None, None, "Kakao API 키가 입력되지 않았습니다."
 
-    # Step 1: 아파트 단지명 → place 검색 → 지번 주소 문자열 획득
+    headers = {"Authorization": f"KakaoAK {kakao_key}"}
+
+    # Step 1: 아파트 단지명 → 좌표 획득
     try:
-        r1 = requests.get(url, params={
-            "service": "search", "request": "search", "version": "2.0",
-            "size": "5", "page": "1",
-            "query": query, "type": "place",
-            "format": "json", "key": vworld_key
-        }, timeout=10)
-
-        if "application/json" not in r1.headers.get("Content-Type", ""):
-            return None, None, None, None, f"Vworld 서버가 비정상 응답을 보냈습니다 (HTML). 키를 확인하세요."
-
-        j1 = r1.json()
-        status1 = j1.get('response', {}).get('status')
-
-        if status1 == 'ERROR':
-            err = j1['response'].get('error', {}).get('text', '알 수 없는 오류')
-            return None, None, None, None, f"Vworld API 오류: {err}"
-
-        parcel_addr = None
-        if status1 == 'OK':
-            items = j1['response']['result']['items']
-            for item in items:
-                pa = item.get('address', {}).get('parcel', '')
-                if pa:
-                    parcel_addr = pa
-                    break
-
-        if not parcel_addr:
-            return None, None, None, None, f"'{query}'에 해당하는 장소를 찾을 수 없습니다. 단지명을 정확히 입력하세요."
-
+        r1 = requests.get(KAKAO_SEARCH_URL, params={"query": query, "size": 1}, headers=headers, timeout=10)
+        docs = r1.json().get("documents", [])
+        if not docs:
+            return None, None, None, None, f"'{query}'에 해당하는 장소를 찾을 수 없습니다. 단지명을 확인하세요."
+        x, y = docs[0]["x"], docs[0]["y"]
     except Exception as e:
-        return None, None, None, None, f"통신 오류 (place 검색): {str(e)}"
+        return None, None, None, None, f"통신 오류 (장소 검색): {str(e)}"
 
-    # Step 2: 지번 주소 문자열 → address 검색 → admCd 획득
+    # Step 2: 좌표 → 법정동 코드 (sigunguCd + bjdongCd)
     try:
-        r2 = requests.get(url, params={
-            "service": "search", "request": "search", "version": "2.0",
-            "size": "1", "page": "1",
-            "query": parcel_addr, "type": "address", "category": "parcel",
-            "format": "json", "key": vworld_key
-        }, timeout=10)
-
-        j2 = r2.json()
-        if j2.get('response', {}).get('status') == 'OK':
-            item2 = j2['response']['result']['items'][0]
-            addr2 = item2.get('address', {})
-            adm_cd = addr2.get('admCd', '')
-            if adm_cd:
-                s_code = adm_cd[:5]
-                b_code = adm_cd[5:]
-                lnm = addr2.get('lnmaddr', '')
-                nums = re.findall(r'\d+', lnm)
-                bun = nums[0] if len(nums) > 0 else "0"
-                ji = nums[1] if len(nums) > 1 else "0"
-                return s_code, b_code, bun, ji, "성공"
-
-        return None, None, None, None, f"admCd 획득 실패 (지번: {parcel_addr})"
-
+        r2 = requests.get(KAKAO_COORD2REGION_URL, params={"x": x, "y": y}, headers=headers, timeout=10)
+        adm_cd = None
+        for doc in r2.json().get("documents", []):
+            if doc.get("region_type") == "B":
+                adm_cd = doc["code"]
+                break
+        if not adm_cd:
+            return None, None, None, None, "법정동 코드를 찾을 수 없습니다."
+        s_code = adm_cd[:5]
+        b_code = adm_cd[5:]
     except Exception as e:
-        return None, None, None, None, f"통신 오류 (address 검색): {str(e)}"
+        return None, None, None, None, f"통신 오류 (지역코드 검색): {str(e)}"
+
+    # Step 3: 좌표 → 지번 (번지/호)
+    try:
+        r3 = requests.get(KAKAO_COORD2ADDR_URL, params={"x": x, "y": y}, headers=headers, timeout=10)
+        docs3 = r3.json().get("documents", [])
+        bun, ji = "0", "0"
+        if docs3 and docs3[0].get("address"):
+            addr = docs3[0]["address"]
+            bun = addr.get("main_address_no") or "0"
+            ji = addr.get("sub_address_no") or "0"
+        return s_code, b_code, bun, ji, "성공"
+    except Exception as e:
+        return None, None, None, None, f"통신 오류 (지번 검색): {str(e)}"

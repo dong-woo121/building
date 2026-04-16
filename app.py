@@ -10,7 +10,7 @@ import urllib.parse
 
 load_dotenv()
 API_KEY = os.getenv("DATA_GO_KR_API_KEY", "")
-VWORLD_KEY = os.getenv("VWORLD_API_KEY", "")
+KAKAO_KEY = os.getenv("KAKAO_API_KEY", "")
 
 BR_EXCT_HABIT_PD_URL = "http://apis.data.go.kr/1613000/BldRgstService_v2/getBrExctHabitPdInfo"
 
@@ -71,8 +71,8 @@ with st.sidebar:
     st.header("🔑 API 설정")
     input_api_key = st.text_input("공공데이터 인증키 (Decoding)", value=API_KEY, type="password")
     if input_api_key: API_KEY = input_api_key
-    input_vworld_key = st.text_input("Vworld 인증키", value=VWORLD_KEY, type="password")
-    if input_vworld_key: VWORLD_KEY = input_vworld_key
+    input_kakao_key = st.text_input("Kakao REST API 키", value=KAKAO_KEY, type="password")
+    if input_kakao_key: KAKAO_KEY = input_kakao_key
     
     st.divider()
     manual_mode = st.checkbox("⚙️ 코드 직접 입력 모드")
@@ -103,13 +103,13 @@ with col3:
 
 if st.button("🔍 정확한 호수 확인하기", use_container_width=True, type="primary"):
     try:
-        if not API_KEY or not VWORLD_KEY:
+        if not API_KEY or not KAKAO_KEY:
             st.error("⚠️ 사이드바에 API 키를 모두 입력해주세요.")
         else:
             with st.status("분석 중...", expanded=True) as status:
                 if not manual_mode:
                     st.write("1. 주소 및 지번 분석 중...")
-                    s_code, b_code, bun, ji, v_msg = search_address_to_codes(addr_input, VWORLD_KEY)
+                    s_code, b_code, bun, ji, v_msg = search_address_to_codes(addr_input, KAKAO_KEY)
                 else:
                     v_msg = "성공"
 
