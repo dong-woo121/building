@@ -23,20 +23,20 @@ def _fetch_all_items(url, base_params):
     try:
         r = requests.get(url, params=base_params, timeout=15)
         if r.status_code != 200:
-            return []
+            return [], 0
         root = ET.fromstring(r.text)
         code = root.findtext('.//resultCode', '')
         if code not in ('00', '0', ''):
-            return []
+            return [], 0
         total = int(root.findtext('.//totalCount') or '0')
         items = list(root.findall('.//item'))
         for page in range(2, math.ceil(total / 1000) + 1):
             p = {**base_params, 'pageNo': page}
             r2 = requests.get(url, params=p, timeout=15)
             items += list(ET.fromstring(r2.text).findall('.//item'))
-        return items
+        return items, total
     except Exception:
-        return []
+        return [], 0
 
 def get_unit_data(s_code, b_code, bun, ji, api_key, bld_name=None, debug_container=None):
     decoded_key = urllib.parse.unquote(api_key)
@@ -57,19 +57,19 @@ def get_unit_data(s_code, b_code, bun, ji, api_key, bld_name=None, debug_contain
         return any(t in _norm(item.findtext('bldNm', '')) for t in bld_tokens)
 
     # 1) 전유부 목록 (동, 호, 층번호)
-    raw_units = _fetch_all_items(BR_EXPOS_INFO_URL, base)
+    raw_units, total_units = _fetch_all_items(BR_EXPOS_INFO_URL, base)
     unit_items = [i for i in raw_units if bld_ok(i)]
 
     # 2) 면적 데이터 (전유 only)
-    raw_area = _fetch_all_items(BR_AREA_URL, base)
+    raw_area, total_area = _fetch_all_items(BR_AREA_URL, base)
     area_items = [i for i in raw_area
                   if i.findtext('exposPubuseGbCd', '') == '1' and bld_ok(i)]
 
     if debug_container:
         debug_container.info(
-            f"📊 **API 로그** | "
-            f"getBrExposInfo: {len(raw_units)}건 (건물명 필터 후: {len(unit_items)}건) | "
-            f"getBrExposPubuseAreaInfo(전유): {len(raw_area)}건 → 면적매칭: {len(area_items)}건"
+            f"📊 **API 로그**\n\n"
+            f"- getBrExposInfo: API총계={total_units}건 / 수신={len(raw_units)}건 / 건물명필터후={len(unit_items)}건\n"
+            f"- getBrExposPubuseAreaInfo: API총계={total_area}건 / 수신={len(raw_area)}건 / 전유+건물명={len(area_items)}건"
         )
     area_map = {}
     for i in area_items:
