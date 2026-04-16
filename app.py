@@ -12,87 +12,80 @@ load_dotenv()
 API_KEY = os.getenv("DATA_GO_KR_API_KEY", "")
 KAKAO_KEY = os.getenv("KAKAO_API_KEY", "")
 
-BR_EXCT_HABIT_PD_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposInfo"
+BR_EXPOS_INFO_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposInfo"
+BR_AREA_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo"
 
-def get_unit_data(s_code, b_code, bun, ji, api_key):
-    import re as _re
+def _norm(s):
+    return "".join(s.split()).lower()
+
+def _fetch_all_items(url, base_params):
     import math
+    try:
+        r = requests.get(url, params=base_params, timeout=15)
+        if r.status_code != 200:
+            return []
+        root = ET.fromstring(r.text)
+        code = root.findtext('.//resultCode', '')
+        if code not in ('00', '0', ''):
+            return []
+        total = int(root.findtext('.//totalCount') or '0')
+        items = list(root.findall('.//item'))
+        for page in range(2, math.ceil(total / 1000) + 1):
+            p = {**base_params, 'pageNo': page}
+            r2 = requests.get(url, params=p, timeout=15)
+            items += list(ET.fromstring(r2.text).findall('.//item'))
+        return items
+    except Exception:
+        return []
+
+def get_unit_data(s_code, b_code, bun, ji, api_key, bld_name=None):
     decoded_key = urllib.parse.unquote(api_key)
-    base_params = {
+    base = {
         'serviceKey': decoded_key,
         'sigunguCd': s_code,
         'bjdongCd': b_code,
         'bun': bun.zfill(4) if bun else '0000',
         'ji': ji.zfill(4) if ji else '0000',
         'numOfRows': 1000,
-        'pageNo': 1
+        'pageNo': 1,
     }
-    try:
-        r = requests.get(BR_EXCT_HABIT_PD_URL, params=base_params, timeout=15)
-        if r.status_code != 200:
-            return r.text, r.status_code
+    bld_tokens = [_norm(t) for t in (bld_name or '').split() if len(t) > 1]
 
-        root = ET.fromstring(r.text)
-        total = int(root.findtext('.//totalCount') or '0')
+    def bld_ok(item):
+        if not bld_tokens:
+            return True
+        return any(t in _norm(item.findtext('bldNm', '')) for t in bld_tokens)
 
-        item_blocks = _re.findall(r'<item>.*?</item>', r.text, _re.DOTALL)
+    # 1) 전유부 목록 (동, 호, 층번호)
+    unit_items = [i for i in _fetch_all_items(BR_EXPOS_INFO_URL, base) if bld_ok(i)]
 
-        if total > 1000:
-            for page in range(2, math.ceil(total / 1000) + 1):
-                base_params['pageNo'] = page
-                r2 = requests.get(BR_EXCT_HABIT_PD_URL, params=base_params, timeout=15)
-                item_blocks += _re.findall(r'<item>.*?</item>', r2.text, _re.DOTALL)
+    # 2) 면적 데이터 (전유 only)
+    area_items = [i for i in _fetch_all_items(BR_AREA_URL, base)
+                  if i.findtext('exposPubuseGbCd', '') == '1' and bld_ok(i)]
+    area_map = {}
+    for i in area_items:
+        key = (i.findtext('dongNm', ''), i.findtext('hoNm', ''))
+        try:
+            area_map[key] = float(i.findtext('area', '0') or '0')
+        except ValueError:
+            pass
 
-        combined = (
-            '<response><header><resultCode>00</resultCode>'
-            '<resultMsg>NORMAL SERVICE</resultMsg></header>'
-            f'<body><items>{"".join(item_blocks)}</items>'
-            f'<totalCount>{len(item_blocks)}</totalCount></body></response>'
-        )
-        return combined, 200
-    except Exception as e:
-        return f"통신 오류: {str(e)}", 500
+    if not unit_items:
+        return [], "데이터 없음: API에서 해당 건물 정보를 찾을 수 없습니다."
 
-def normalize(s):
-    return "".join(s.split()).lower()
+    units = []
+    for i in unit_items:
+        dong = i.findtext('dongNm', '')
+        ho = i.findtext('hoNm', '')
+        try:
+            flr_int = int(i.findtext('flrNo', '0') or '0')
+            flr_str = f"{flr_int}층" if flr_int > 0 else (f"지{abs(flr_int)}층" if flr_int < 0 else "")
+        except ValueError:
+            flr_str = i.findtext('flrNo', '')
+        area = area_map.get((dong, ho), 0.0)
+        units.append({'동': dong, '호': ho, '층': flr_str, '면적': area})
 
-def parse_units(xml_data, target_dong, bld_name=None):
-    if not xml_data: return [], "서버 응답이 비어있습니다."
-    try:
-        if not xml_data.strip().startswith("<"):
-            return [], f"데이터 형식 오류: {xml_data[:100]}"
-
-        root = ET.fromstring(xml_data)
-        header_code = root.findtext(".//resultCode")
-        header_msg = root.findtext(".//resultMsg")
-
-        if header_code and header_code not in ["00", "0"]:
-            return [], f"API 에러: {header_msg} ({header_code})"
-
-        # 건물명 토큰 (공백/특수문자 제거 후 비교)
-        bld_tokens = [normalize(t) for t in (bld_name or "").split() if len(t) > 1] if bld_name else []
-
-        items = []
-        for i in root.findall(".//item"):
-            # 건물명 필터
-            if bld_tokens:
-                item_bld = normalize(i.findtext('bldNm', ''))
-                if not any(t in item_bld for t in bld_tokens):
-                    continue
-            d = i.findtext('dongNm', '')
-            clean_target = "".join(filter(str.isdigit, target_dong)) if target_dong else ""
-            clean_dong = "".join(filter(str.isdigit, d))
-
-            if not target_dong or (clean_target and clean_target in clean_dong) or target_dong in d:
-                items.append({
-                    '동': d,
-                    '호': i.findtext('hoNm', ''),
-                    '층': i.findtext('flrNoNm', ''),
-                    '면적': float(i.findtext('area', '0') or '0')
-                })
-        return items, "성공"
-    except Exception as e:
-        return [], f"XML 분석 실패: {str(e)}"
+    return units, "성공"
 
 st.set_page_config(page_title="매물 호수 식별기", page_icon="🏢", layout="centered")
 
@@ -143,37 +136,39 @@ if st.button("🔍 정확한 호수 확인하기", use_container_width=True, typ
                 if s_code:
                     st.write(f"✅ 주소 파악 완료: {s_code}{b_code}")
                     st.write("2. 국토부 서버에서 건축물대장을 가져오고 있습니다...")
-                    xml_raw, status_code = get_unit_data(s_code, b_code, bun, ji, API_KEY)
+                    units, msg = get_unit_data(
+                        s_code, b_code, bun, ji, API_KEY,
+                        bld_name=addr_input if not manual_mode else None
+                    )
 
-                    if status_code == 200:
-                        units, msg = parse_units(xml_raw, dong, bld_name=addr_input if not manual_mode else None)
-                        if units:
-                            df = pd.DataFrame(units)
-                            df_filtered = df[df['층'].str.contains(floor) if floor else True]
-                            df_final = df_filtered[abs(df_filtered['면적'] - area) < 0.1]
-                            
-                            if not df_final.empty:
-                                status.update(label="🎯 매칭 성공!", state="complete", expanded=False)
-                                st.balloons()
-                                st.success(f"### 🎉 총 {len(df_final)}개의 후보 발견")
-                                for _, row in df_final.iterrows():
-                                    st.info(f"**{row['동']} {row['호']}** (층: {row['층']} / 면적: {row['면적']}㎡)")
-                            else:
-                                status.update(label="❌ 일치하는 호수 없음", state="error")
-                                st.error("조건에 맞는 호수가 없습니다. 면적이나 층을 확인하세요.")
-                                with st.expander("동 전체 호수 보기"):
-                                    st.dataframe(df)
-                                with st.expander("원본 XML (필드명 확인용)"):
-                                    st.code(xml_raw[:3000])
+                    if units:
+                        df = pd.DataFrame(units)
+                        # 동 필터
+                        dong_digits = "".join(filter(str.isdigit, dong)) if dong else ""
+                        if dong_digits:
+                            df = df[df['동'].apply(lambda d: dong_digits in "".join(filter(str.isdigit, d)))]
+                        # 층 필터
+                        df_floor = df[df['층'].str.contains(floor, na=False)] if floor else df
+                        # 면적 필터 (면적 데이터가 있을 때만)
+                        has_area = df_floor['면적'].max() > 0
+                        df_final = df_floor[abs(df_floor['면적'] - area) < 0.1] if has_area else df_floor
+
+                        if not df_final.empty:
+                            status.update(label="🎯 매칭 성공!", state="complete", expanded=False)
+                            st.balloons()
+                            st.success(f"### 🎉 총 {len(df_final)}개의 후보 발견")
+                            for _, row in df_final.iterrows():
+                                st.info(f"**{row['동']} {row['호']}** (층: {row['층']} / 면적: {row['면적']}㎡)")
+                            if not has_area:
+                                st.warning("⚠️ 면적 데이터 없음 — 층만으로 필터링한 결과입니다.")
                         else:
-                            status.update(label="❌ 데이터 없음", state="error")
-                            st.error(f"결과 없음: {msg}")
-                            with st.expander("원본 로그"):
-                                st.code(xml_raw)
+                            status.update(label="❌ 일치하는 호수 없음", state="error")
+                            st.error("조건에 맞는 호수가 없습니다. 면적이나 층을 확인하세요.")
+                            with st.expander("동 전체 호수 보기"):
+                                st.dataframe(df)
                     else:
-                        status.update(label="❌ 서버 응답 오류", state="error")
-                        st.error(f"상태 코드: {status_code}")
-                        st.code(xml_raw[:2000] if xml_raw else "(응답 없음)")
+                        status.update(label="❌ 데이터 없음", state="error")
+                        st.error(f"결과 없음: {msg}")
                 else:
                     status.update(label="❌ 주소 인식 실패", state="error")
                     st.error(v_msg)
