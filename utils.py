@@ -13,9 +13,13 @@ def search_address_to_codes(query, kakao_key):
     # Step 1: 아파트 단지명 → 좌표 획득
     try:
         r1 = requests.get(KAKAO_SEARCH_URL, params={"query": query, "size": 1}, headers=headers, timeout=10)
+        if r1.status_code == 401:
+            return None, None, None, None, "Kakao API 인증 실패 (401). REST API 키와 로컬 API 활성화를 확인하세요."
+        if r1.status_code != 200:
+            return None, None, None, None, f"Kakao API 오류: HTTP {r1.status_code} / {r1.text[:200]}"
         docs = r1.json().get("documents", [])
         if not docs:
-            return None, None, None, None, f"'{query}'에 해당하는 장소를 찾을 수 없습니다. 단지명을 확인하세요."
+            return None, None, None, None, f"'{query}' 검색 결과 없음. 카카오맵에서 검색되는 정확한 단지명을 입력하세요."
         x, y = docs[0]["x"], docs[0]["y"]
     except Exception as e:
         return None, None, None, None, f"통신 오류 (장소 검색): {str(e)}"
