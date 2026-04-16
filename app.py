@@ -90,11 +90,9 @@ st.set_page_config(page_title="매물 호수 식별기", page_icon="🏢", layou
 
 with st.sidebar:
     st.header("🔑 API 설정")
-    input_api_key = st.text_input("공공데이터 인증키 (Decoding)", value=API_KEY, type="password")
-    if input_api_key: API_KEY = input_api_key
-    input_kakao_key = st.text_input("Kakao REST API 키", value=KAKAO_KEY, type="password")
-    if input_kakao_key: KAKAO_KEY = input_kakao_key
-    
+    st.success("공공데이터 키 로드됨" if API_KEY else "공공데이터 키 없음")
+    st.success("Kakao 키 로드됨" if KAKAO_KEY else "Kakao 키 없음")
+
     st.divider()
     manual_mode = st.checkbox("⚙️ 코드 직접 입력 모드")
 
