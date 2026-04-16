@@ -15,12 +15,8 @@ KAKAO_KEY = os.getenv("KAKAO_API_KEY", "")
 BR_EXCT_HABIT_PD_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo"
 
 def get_unit_data(s_code, b_code, bun, ji, api_key):
-    # 공공데이터포털 API의 고질적인 키 이슈 해결: 
-    # requests는 자동으로 인코딩을 시도하므로, 이미 인코딩된 키가 들어오면 이중 인코딩이 발생함.
-    # 이를 방지하기 위해 unquote 후 사용
     decoded_key = urllib.parse.unquote(api_key)
-    
-    params = {
+    base_params = {
         'serviceKey': decoded_key,
         'sigunguCd': s_code,
         'bjdongCd': b_code,
@@ -30,8 +26,26 @@ def get_unit_data(s_code, b_code, bun, ji, api_key):
         'pageNo': 1
     }
     try:
-        response = requests.get(BR_EXCT_HABIT_PD_URL, params=params, timeout=15)
-        return response.text, response.status_code
+        r = requests.get(BR_EXCT_HABIT_PD_URL, params=base_params, timeout=15)
+        if r.status_code != 200:
+            return r.text, r.status_code
+
+        # totalCount 파악 후 페이지네이션
+        root = ET.fromstring(r.text)
+        total = int(root.findtext('.//totalCount') or '0')
+        all_xml = r.text
+
+        if total > 2000:
+            pages = (total // 2000) + 1
+            for page in range(2, pages + 1):
+                base_params['pageNo'] = page
+                r2 = requests.get(BR_EXCT_HABIT_PD_URL, params=base_params, timeout=15)
+                root2 = ET.fromstring(r2.text)
+                for item in root2.findall('.//item'):
+                    ET.SubElement(root.find('.//items'), 'item').extend(list(item))
+            all_xml = ET.tostring(root, encoding='unicode')
+
+        return all_xml, 200
     except Exception as e:
         return f"통신 오류: {str(e)}", 500
 
