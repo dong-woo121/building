@@ -144,7 +144,12 @@ if st.button("🔍 정확한 호수 확인하기", use_container_width=True, typ
                     else:
                         status.update(label="❌ 서버 응답 오류", state="error")
                         st.error(f"상태 코드: {status_code}")
-                        st.code(xml_raw)
+                        st.write("**요청 파라미터:**")
+                        import urllib.parse as up
+                        dk = up.unquote(API_KEY)
+                        st.code(f"sigunguCd={s_code}\nbjdongCd={b_code}\nbun={bun.zfill(4)}\nji={ji.zfill(4)}\nserviceKey={dk[:10]}...({len(dk)}자)")
+                        st.write("**서버 응답:**")
+                        st.code(xml_raw[:2000] if xml_raw else "(응답 없음)")
                 else:
                     status.update(label="❌ 주소 인식 실패", state="error")
                     st.error(v_msg)
