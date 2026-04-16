@@ -30,10 +30,12 @@ def _fetch_all_items(url, base_params):
             return [], 0
         total = int(root.findtext('.//totalCount') or '0')
         items = list(root.findall('.//item'))
-        for page in range(2, math.ceil(total / 1000) + 1):
-            p = {**base_params, 'pageNo': page}
-            r2 = requests.get(url, params=p, timeout=15)
-            items += list(ET.fromstring(r2.text).findall('.//item'))
+        per_page = len(items) if items else 1000
+        if per_page > 0 and total > per_page:
+            for page in range(2, math.ceil(total / per_page) + 1):
+                p = {**base_params, 'pageNo': page}
+                r2 = requests.get(url, params=p, timeout=15)
+                items += list(ET.fromstring(r2.text).findall('.//item'))
         return items, total
     except Exception:
         return [], 0
