@@ -12,9 +12,9 @@ load_dotenv()
 API_KEY = os.getenv("DATA_GO_KR_API_KEY", "")
 KAKAO_KEY = os.getenv("KAKAO_API_KEY", "")
 
-BR_EXCT_HABIT_PD_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo"
+BR_EXCT_HABIT_PD_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposInfo"
 
-def get_unit_data(s_code, b_code, bun, ji, api_key):
+def get_unit_data(s_code, b_code, api_key):
     import re as _re
     import math
     decoded_key = urllib.parse.unquote(api_key)
@@ -22,8 +22,6 @@ def get_unit_data(s_code, b_code, bun, ji, api_key):
         'serviceKey': decoded_key,
         'sigunguCd': s_code,
         'bjdongCd': b_code,
-        'bun': bun.zfill(4),
-        'ji': ji.zfill(4),
         'numOfRows': 1000,
         'pageNo': 1
     }
@@ -53,24 +51,32 @@ def get_unit_data(s_code, b_code, bun, ji, api_key):
     except Exception as e:
         return f"통신 오류: {str(e)}", 500
 
-def parse_units(xml_data, target_dong):
+def normalize(s):
+    return "".join(s.split()).lower()
+
+def parse_units(xml_data, target_dong, bld_name=None):
     if not xml_data: return [], "서버 응답이 비어있습니다."
     try:
         if not xml_data.strip().startswith("<"):
             return [], f"데이터 형식 오류: {xml_data[:100]}"
-            
+
         root = ET.fromstring(xml_data)
         header_code = root.findtext(".//resultCode")
         header_msg = root.findtext(".//resultMsg")
-        
+
         if header_code and header_code not in ["00", "0"]:
             return [], f"API 에러: {header_msg} ({header_code})"
-            
+
+        # 건물명 토큰 (공백/특수문자 제거 후 비교)
+        bld_tokens = [normalize(t) for t in (bld_name or "").split() if len(t) > 1] if bld_name else []
+
         items = []
         for i in root.findall(".//item"):
-            # 공용면적 제외, 전유(1)만
-            if i.findtext('exposPubuseGbCd', '') != '1':
-                continue
+            # 건물명 필터
+            if bld_tokens:
+                item_bld = normalize(i.findtext('bldNm', ''))
+                if not any(t in item_bld for t in bld_tokens):
+                    continue
             d = i.findtext('dongNm', '')
             clean_target = "".join(filter(str.isdigit, target_dong)) if target_dong else ""
             clean_dong = "".join(filter(str.isdigit, d))
@@ -133,12 +139,12 @@ if st.button("🔍 정확한 호수 확인하기", use_container_width=True, typ
                     v_msg = "성공"
 
                 if s_code:
-                    st.write(f"✅ 주소 파악 완료: {s_code}{b_code} (지번: {bun}-{ji})")
+                    st.write(f"✅ 주소 파악 완료: {s_code}{b_code}")
                     st.write("2. 국토부 서버에서 건축물대장을 가져오고 있습니다...")
-                    xml_raw, status_code = get_unit_data(s_code, b_code, bun, ji, API_KEY)
-                    
+                    xml_raw, status_code = get_unit_data(s_code, b_code, API_KEY)
+
                     if status_code == 200:
-                        units, msg = parse_units(xml_raw, dong)
+                        units, msg = parse_units(xml_raw, dong, bld_name=addr_input if not manual_mode else None)
                         if units:
                             df = pd.DataFrame(units)
                             df_filtered = df[df['층'].str.contains(floor) if floor else True]
@@ -165,11 +171,6 @@ if st.button("🔍 정확한 호수 확인하기", use_container_width=True, typ
                     else:
                         status.update(label="❌ 서버 응답 오류", state="error")
                         st.error(f"상태 코드: {status_code}")
-                        st.write("**요청 파라미터:**")
-                        import urllib.parse as up
-                        dk = up.unquote(API_KEY)
-                        st.code(f"sigunguCd={s_code}\nbjdongCd={b_code}\nbun={bun.zfill(4)}\nji={ji.zfill(4)}\nserviceKey={dk[:10]}...({len(dk)}자)")
-                        st.write("**서버 응답:**")
                         st.code(xml_raw[:2000] if xml_raw else "(응답 없음)")
                 else:
                     status.update(label="❌ 주소 인식 실패", state="error")
