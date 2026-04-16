@@ -238,8 +238,8 @@ if st.session_state.get('ambiguous_candidates'):
     candidates = st.session_state.ambiguous_candidates
     s_c, b_c, bn, j = st.session_state.search_params
     st.divider()
-    st.warning(f"⚠️ {len(candidates)}개 후보의 면적이 완전히 동일합니다. 네이버 매물 '중개보수 및 세금정보'의 **재산세**를 입력하면 호수를 최종 확정할 수 있습니다.")
-    jaesan_val = st.number_input("💰 재산세 (원)", min_value=0, step=1000, key="jaesan_input")
+    st.warning(f"⚠️ {len(candidates)}개 후보의 면적이 완전히 동일합니다. 네이버 매물 '중개보수 및 세금정보'에서 **재산세** 항목 금액만 입력하세요 (지방교육세·도시지역분·종부세 제외).")
+    jaesan_val = st.number_input("💰 재산세 본세 (원)", min_value=0, step=1000, key="jaesan_input")
     if st.button("🎯 재산세로 최종 확인", key="btn_jaesan", type="secondary"):
         with st.spinner("공시가격 조회 중..."):
             hsprc_map = get_hsprc_for_candidates(s_c, b_c, bn, j, candidates, API_KEY)
