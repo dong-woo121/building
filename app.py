@@ -106,33 +106,32 @@ def calc_property_tax(gongsi_price):
 
 def get_hsprc_for_candidates(s_code, b_code, bun, ji, candidates, api_key):
     decoded_key = urllib.parse.unquote(api_key)
-    base = {
-        'serviceKey': decoded_key,
-        'sigunguCd': s_code,
-        'bjdongCd': b_code,
-        'bun': bun.zfill(4) if bun else '0000',
-        'ji': ji.zfill(4) if ji else '0000',
-        'numOfRows': 1000,
-        'pageNo': 1,
-    }
-    items, _ = _fetch_all_items(BR_HSPRC_URL, base)
-    candidate_keys = {(c['동'], c['호']) for c in candidates}
-    # Take most recent year per unit
-    price_by_unit = {}
-    for item in items:
-        dong = item.findtext('dongNm', '')
-        ho = item.findtext('hoNm', '')
-        if (dong, ho) not in candidate_keys:
-            continue
-        try:
-            year = int(item.findtext('stdrYear', '0') or '0')
-            price = float(item.findtext('hsprc', '0') or '0')
-            key = (dong, ho)
-            if key not in price_by_unit or year > price_by_unit[key][0]:
-                price_by_unit[key] = (year, price)
-        except ValueError:
-            pass
-    return {k: v[1] for k, v in price_by_unit.items()}
+    result = {}
+    for cand in candidates:
+        params = {
+            'serviceKey': decoded_key,
+            'sigunguCd': s_code,
+            'bjdongCd': b_code,
+            'bun': bun.zfill(4) if bun else '0000',
+            'ji': ji.zfill(4) if ji else '0000',
+            'dongNm': cand['동'],
+            'hoNm': cand['호'],
+            'numOfRows': 10,
+            'pageNo': 1,
+        }
+        items, _ = _fetch_all_items(BR_HSPRC_URL, params)
+        best = None
+        for item in items:
+            try:
+                year = int(item.findtext('stdrYear', '0') or '0')
+                price = float(item.findtext('hsprc', '0') or '0')
+                if best is None or year > best[0]:
+                    best = (year, price)
+            except ValueError:
+                pass
+        if best:
+            result[(cand['동'], cand['호'])] = best[1]
+    return result
 
 st.set_page_config(page_title="매물 호수 식별기", page_icon="🏢", layout="centered")
 
