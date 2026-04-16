@@ -14,7 +14,7 @@ KAKAO_KEY = os.getenv("KAKAO_API_KEY", "")
 
 BR_EXCT_HABIT_PD_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposInfo"
 
-def get_unit_data(s_code, b_code, api_key):
+def get_unit_data(s_code, b_code, bun, ji, api_key):
     import re as _re
     import math
     decoded_key = urllib.parse.unquote(api_key)
@@ -22,6 +22,8 @@ def get_unit_data(s_code, b_code, api_key):
         'serviceKey': decoded_key,
         'sigunguCd': s_code,
         'bjdongCd': b_code,
+        'bun': bun.zfill(4) if bun else '0000',
+        'ji': ji.zfill(4) if ji else '0000',
         'numOfRows': 1000,
         'pageNo': 1
     }
@@ -141,7 +143,7 @@ if st.button("🔍 정확한 호수 확인하기", use_container_width=True, typ
                 if s_code:
                     st.write(f"✅ 주소 파악 완료: {s_code}{b_code}")
                     st.write("2. 국토부 서버에서 건축물대장을 가져오고 있습니다...")
-                    xml_raw, status_code = get_unit_data(s_code, b_code, API_KEY)
+                    xml_raw, status_code = get_unit_data(s_code, b_code, bun, ji, API_KEY)
 
                     if status_code == 200:
                         units, msg = parse_units(xml_raw, dong, bld_name=addr_input if not manual_mode else None)
