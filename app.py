@@ -15,6 +15,8 @@ KAKAO_KEY = os.getenv("KAKAO_API_KEY", "")
 BR_EXCT_HABIT_PD_URL = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrExposPubuseAreaInfo"
 
 def get_unit_data(s_code, b_code, bun, ji, api_key):
+    import re as _re
+    import math
     decoded_key = urllib.parse.unquote(api_key)
     base_params = {
         'serviceKey': decoded_key,
@@ -22,7 +24,7 @@ def get_unit_data(s_code, b_code, bun, ji, api_key):
         'bjdongCd': b_code,
         'bun': bun.zfill(4),
         'ji': ji.zfill(4),
-        'numOfRows': 2000,
+        'numOfRows': 1000,
         'pageNo': 1
     }
     try:
@@ -30,22 +32,24 @@ def get_unit_data(s_code, b_code, bun, ji, api_key):
         if r.status_code != 200:
             return r.text, r.status_code
 
-        # totalCount 파악 후 페이지네이션
         root = ET.fromstring(r.text)
         total = int(root.findtext('.//totalCount') or '0')
-        all_xml = r.text
 
-        if total > 2000:
-            pages = (total // 2000) + 1
-            for page in range(2, pages + 1):
+        item_blocks = _re.findall(r'<item>.*?</item>', r.text, _re.DOTALL)
+
+        if total > 1000:
+            for page in range(2, math.ceil(total / 1000) + 1):
                 base_params['pageNo'] = page
                 r2 = requests.get(BR_EXCT_HABIT_PD_URL, params=base_params, timeout=15)
-                root2 = ET.fromstring(r2.text)
-                for item in root2.findall('.//item'):
-                    ET.SubElement(root.find('.//items'), 'item').extend(list(item))
-            all_xml = ET.tostring(root, encoding='unicode')
+                item_blocks += _re.findall(r'<item>.*?</item>', r2.text, _re.DOTALL)
 
-        return all_xml, 200
+        combined = (
+            '<response><header><resultCode>00</resultCode>'
+            '<resultMsg>NORMAL SERVICE</resultMsg></header>'
+            f'<body><items>{"".join(item_blocks)}</items>'
+            f'<totalCount>{len(item_blocks)}</totalCount></body></response>'
+        )
+        return combined, 200
     except Exception as e:
         return f"통신 오류: {str(e)}", 500
 
