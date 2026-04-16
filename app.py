@@ -50,16 +50,19 @@ def parse_units(xml_data, target_dong):
             
         items = []
         for i in root.findall(".//item"):
+            # 공용면적 제외, 전유(1)만
+            if i.findtext('exposPubuseGbCd', '') != '1':
+                continue
             d = i.findtext('dongNm', '')
             clean_target = "".join(filter(str.isdigit, target_dong)) if target_dong else ""
             clean_dong = "".join(filter(str.isdigit, d))
-            
+
             if not target_dong or (clean_target and clean_target in clean_dong) or target_dong in d:
                 items.append({
                     '동': d,
                     '호': i.findtext('hoNm', ''),
-                    '층': i.findtext('flrNm', ''),
-                    '면적': float(i.findtext('exposPubuseArea', '0'))
+                    '층': i.findtext('flrNoNm', ''),
+                    '면적': float(i.findtext('area', '0') or '0')
                 })
         return items, "성공"
     except Exception as e:
